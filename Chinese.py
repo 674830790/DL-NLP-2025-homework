@@ -1,50 +1,180 @@
+# -*- coding: gb2312 -*-
 import os
 import math
+import re
+import unicodedata
 from collections import Counter
 import jieba
+import matplotlib.pyplot as plt
 
-# è®¡ç®—å­—ç¬¦ä¿¡æ¯ç†µ
-def calculate_char_entropy(text):
-    char_count = Counter(text)
-    total_chars = len(text)
-    entropy = -sum((count / total_chars) * math.log2(count / total_chars) for count in char_count.values())
-    return entropy
+# ÉèÖÃ matplotlib Ö§³ÖÖĞÎÄÏÔÊ¾£¨Ê¹ÓÃ SimHei ×ÖÌå£¬ÈçÏµÍ³ÖĞÃ»ÓĞÇë°²×°»òĞŞ¸ÄÎªÆäËûÖ§³ÖÖĞÎÄµÄ×ÖÌå£©
+plt.rcParams['font.sans-serif'] = ['SimHei']
+plt.rcParams['axes.unicode_minus'] = False
 
-# åˆ†å—è®¡ç®—è¯ä¿¡æ¯ç†µ
-def calculate_word_entropy(text, chunk_size=1000000):  # æ¯æ¬¡å¤„ç†100ä¸‡å­—ç¬¦
-    word_count = Counter()
-    total_words = 0
-    
-    for i in range(0, len(text), chunk_size):
-        chunk = text[i:i + chunk_size]
-        words = jieba.lcut(chunk)
-        word_count.update(words)
-        total_words += len(words)
-        print(f"å·²å¤„ç†{min(i + chunk_size, len(text))}/{len(text)}ä¸ªå­—ç¬¦")
+def load_stopwords(file_path):
+    """¼ÓÔØÍ£ÓÃ´Ê²¢È¥³ıÊ×Î²¿Õ¸ñ"""
+    with open(file_path, 'r', encoding='utf-8') as f:
+        stopwords = set(line.strip() for line in f if line.strip())
+    return stopwords
 
-    entropy = -sum((count / total_words) * math.log2(count / total_words) for count in word_count.values())
-    return entropy
-
-# è¯»å–è¯­æ–™åº“æ–‡æœ¬
-def read_corpus(root_dir):
-    corpus = ""
-    for foldername, subfolders, filenames in os.walk(root_dir):
+def read_all_corpus(root_dir):
+    """
+    ±éÀúÕû¸öÓïÁÏ¿âÄ¿Â¼£¬ÍêÕû¶ÁÈ¡Ã¿¸öÎÄ¼şµÄÄÚÈİ²¢Éú³ÉÎÄ±¾¡£
+    ¶ÔÓÚÄãµÄÄ¿Â¼½á¹¹£¨wiki_zh ÏÂÓĞ AA, AB, AC¡­AM ×ÓÎÄ¼ş¼Ğ£¬Ã¿¸ö×ÓÎÄ¼ş¼ĞÄÚÓĞÎŞÀ©Õ¹ÃûµÄÎÄ¼ş£©£¬
+    ¸Ãº¯Êı¶¼ÄÜ±éÀúµ½ËùÓĞÎÄ¼ş¡£
+    """
+    for foldername, _, filenames in os.walk(root_dir):
         for filename in filenames:
             file_path = os.path.join(foldername, filename)
-            with open(file_path, 'r', encoding='utf-8') as file:
-                corpus += file.read()
-    return corpus
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    yield f.read()
+            except Exception as e:
+                print(f"Error reading {file_path}: {str(e)}")
 
-# ä¸»ç¨‹åº
-corpus_root = 'wiki_zh'
-text = read_corpus(corpus_root)
+def clean_text_for_char(text):
+    """
+    ÓÃÓÚ×Ö·ûÍ³¼ÆµÄÎÄ±¾ÇåÏ´£º
+      - É¾³ı»»ĞĞ·û¡¢»Ø³µ·û¡¢ÖÆ±í·û
+      - É¾³ıËùÓĞÀàĞÍµÄ¿Õ¸ñ£¨ÆÕÍ¨¿Õ¸ñºÍÈ«½Ç¿Õ¸ñ£©
+      - É¾³ıĞ±¸ÜºÍÒıºÅ£¨ÖĞÓ¢ÎÄÒıºÅ£©
+      - É¾³ıËùÓĞ×ÖÄ¸£¨a-z¡¢A-Z£©
+      - É¾³ıËùÓĞ±êµã£¨ÀûÓÃ Unicode ·ÖÀà£¬±êµãÀà±ğÒÔ "P" ¿ªÍ·£©
+      - É¾³ıËùÓĞÊı×Ö¼°µÈºÅ
+    """
+    # É¾³ı»»ĞĞ¡¢»Ø³µ¡¢ÖÆ±í·û
+    text = re.sub(r'[\n\r\t]', '', text)
+    # É¾³ıËùÓĞÀàĞÍµÄ¿Õ¸ñ£¨ÆÕÍ¨¿Õ¸ñºÍÈ«½Ç¿Õ¸ñ£©
+    text = re.sub(r'[ \u3000]', '', text)
+    # É¾³ıĞ±¸ÜºÍÒıºÅ
+    text = re.sub(r'[\/"¡°¡±]', '', text)
+    # É¾³ıËùÓĞ×ÖÄ¸
+    text = re.sub(r'[A-Za-z]', '', text)
+    # É¾³ıËùÓĞ±êµã·ûºÅ
+    text = ''.join(ch for ch in text if not unicodedata.category(ch).startswith('P'))
+    # É¾³ıÊı×ÖºÍµÈºÅ
+    text = re.sub(r'[0-9]', '', text)
+    text = text.replace('=', '')
+    return text
 
-print(f"è¯»å–åˆ°çš„æ–‡æœ¬æ€»é•¿åº¦ï¼š{len(text)} ä¸ªå­—ç¬¦")
+def prepare_text_for_seg(text):
+    """
+    ¶ÔÎÄ±¾½øĞĞÇá¶ÈÇåÏ´ÒÔ±£Áô±êµã£¬±ãÓÚ jieba ·Ö´Ê£º
+    ÕâÀïÖ»È¥³ı»»ĞĞ¡¢»Ø³µ¡¢ÖÆ±í·û£¬±£ÁôÆäËûĞÅÏ¢°ïÖú·Ö´Ê
+    """
+    return re.sub(r'[\n\r\t]', '', text)
 
-# è®¡ç®—å­—ä¿¡æ¯ç†µ
-char_entropy = calculate_char_entropy(text)
-print(f"ä¸­æ–‡æ–‡æœ¬çš„å­—ä¿¡æ¯ç†µï¼š{char_entropy:.4f} bits/char")
+def filter_stopwords_words(words, stopwords):
+    """
+    ¹ıÂË·Ö´Ê½á¹û£º
+      - È¥³ı¿Õ´Ê
+      - È¥³ı½öÓÉ±êµã¹¹³ÉµÄ´Ê
+      - È¥³ıÍ£ÓÃ´Ê
+      - È¥³ı²»°üº¬ÈÎºÎÖĞÎÄ×Ö·ûµÄ´Ê£¨ÀıÈç´¿Ó¢ÎÄµÄ 'n'£©
+    """
+    filtered = []
+    for word in words:
+        word = word.strip()
+        if not word:
+            continue
+        # Èç¹û´Ê²»º¬ÈÎºÎÖĞÎÄ×Ö·û£¬ÔòÌø¹ı
+        if not any('\u4e00' <= ch <= '\u9fff' for ch in word):
+            continue
+        # Èç¹û´ÊÍêÈ«ÓÉ±êµã¹¹³É£¬ÔòÌø¹ı
+        if all(unicodedata.category(ch).startswith('P') for ch in word):
+            continue
+        if word in stopwords:
+            continue
+        filtered.append(word)
+    return filtered
 
-# è®¡ç®—è¯ä¿¡æ¯ç†µï¼ˆåˆ†å—å¤„ç†ï¼‰
-word_entropy = calculate_word_entropy(text)
-print(f"ä¸­æ–‡æ–‡æœ¬çš„è¯ä¿¡æ¯ç†µï¼š{word_entropy:.4f} bits/word")
+def filter_stopwords_chars(text, stopwords):
+    """
+    ¶Ô×Ö·û½øĞĞÍ£ÓÃ´Ê¹ıÂË£º
+    ½«Í£ÓÃ´ÊÖĞµÄËùÓĞ×Ö·û×é³É¼¯ºÏ£¬È»ºó¹ıÂËµôÕâĞ©×Ö·û
+    """
+    stop_chars = set(''.join(stopwords))
+    return ''.join(ch for ch in text if ch not in stop_chars)
+
+def plot_long_tail(counter, title="Frequency Long Tail Distribution"):
+    """»æÖÆ³¤Î²·Ö²¼Í¼£¨¶ÔÊı×ø±ê£©"""
+    sorted_freq = sorted(counter.values(), reverse=True)
+    plt.figure(figsize=(10, 6))
+    plt.plot(sorted_freq)
+    plt.yscale('log')
+    plt.title(title)
+    plt.xlabel("Rank")
+    plt.ylabel("Frequency (log scale)")
+    plt.show()
+
+def plot_top50(counter, title="Top 50 Frequency Distribution"):
+    """»æÖÆ³öÏÖÆµÂÊÇ°50µÄÖ±·½Í¼"""
+    top50 = counter.most_common(50)
+    labels, values = zip(*top50)
+    plt.figure(figsize=(12, 6))
+    plt.bar(range(len(labels)), values, tick_label=labels)
+    plt.title(title)
+    plt.xlabel("Token")
+    plt.ylabel("Frequency")
+    plt.xticks(rotation=45)
+    plt.show()
+
+if __name__ == "__main__":
+    CORPUS_DIR = "wiki_zh"            # ÓïÁÏ¿â¸ùÄ¿Â¼
+    STOPWORDS_FILE = "cn_stopwords.txt"  # Í£ÓÃ´ÊÎÄ¼ş
+
+    stopwords = load_stopwords(STOPWORDS_FILE)
+    
+    global_char_counter = Counter()
+    global_word_counter = Counter()
+    total_filtered_chars = 0
+    total_filtered_words = 0
+    
+    file_count = 0
+    # ±éÀúÕû¸öÓïÁÏ¿âÖĞËùÓĞÎÄ¼şµÄÄÚÈİ
+    for text in read_all_corpus(CORPUS_DIR):
+        file_count += 1
+        print(f"Processing file {file_count} with {len(text)} characters")
+        
+        # ×Ö·ûÍ³¼Æ´¦Àí£ºÏÈ½øĞĞÇ¿ÇåÏ´£¬ÔÙ¹ıÂËÍ£ÓÃ´ÊÖĞµÄ×Ö·û
+        cleaned_text = clean_text_for_char(text)
+        filtered_chars = filter_stopwords_chars(cleaned_text, stopwords)
+        global_char_counter.update(filtered_chars)
+        total_filtered_chars += len(filtered_chars)
+        
+        # ·Ö´Ê´¦Àí£º¶ÔÎÄ±¾½øĞĞÇá¶ÈÇåÏ´£¨±£Áô±êµãÒÔ°ïÖú·Ö´Ê£©£¬ÔÙ·Ö´ÊºÍ¹ıÂËÍ£ÓÃ´Ê¡¢·ÇÖĞÎÄ´Ê
+        seg_text = prepare_text_for_seg(text)
+        words = jieba.lcut(seg_text)
+        filtered_words = filter_stopwords_words(words, stopwords)
+        global_word_counter.update(filtered_words)
+        total_filtered_words += len(filtered_words)
+    
+    # ¼ÆËã×Ö·ûĞÅÏ¢ìØ
+    if total_filtered_chars > 0:
+        char_entropy = -sum((count / total_filtered_chars) * math.log2(count / total_filtered_chars)
+                            for count in global_char_counter.values())
+    else:
+        char_entropy = 0.0
+    print(f"È«¾Ö×Ö·ûĞÅÏ¢ìØ: {char_entropy:.4f} bits/char")
+    
+    # ¼ÆËã´ÊĞÅÏ¢ìØ
+    if total_filtered_words > 0:
+        word_entropy = -sum((count / total_filtered_words) * math.log2(count / total_filtered_words)
+                            for count in global_word_counter.values())
+    else:
+        word_entropy = 0.0
+    print(f"È«¾Ö´ÊĞÅÏ¢ìØ: {word_entropy:.4f} bits/word")
+    
+    # »æÖÆ³¤Î²·Ö²¼Í¼ºÍÇ°50ÆµÂÊÖ±·½Í¼
+    plot_long_tail(global_char_counter, title="×Ö·û³¤Î²·Ö²¼")
+    plot_long_tail(global_word_counter, title="´Ê³¤Î²·Ö²¼")
+    
+    plot_top50(global_char_counter, title="³öÏÖÆµÂÊÇ°50µÄ×Ö·û")
+    plot_top50(global_word_counter, title="³öÏÖÆµÂÊÇ°50µÄ´Ê")
+
+    # ÕÒ³ö×ÖÆµµÚÒ»µÄ×Ö·û¼°ÆäÆµÂÊ
+if global_char_counter:
+    most_common_char, most_common_char_count = global_char_counter.most_common(1)[0]
+    print(f"×ÖÆµ×î¸ßµÄ×Ö·ûÊÇ: '{most_common_char}'£¬³öÏÖÁË {most_common_char_count} ´Î")
+else:
+    print("Î´Í³¼Æµ½ÈÎºÎ×Ö·û")
